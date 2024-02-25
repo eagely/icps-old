@@ -40,14 +40,6 @@ impl<'a> Scanner<'a> {
         self.it.peek()
     }
 
-    // fn peek_ahead(&mut self, ahead: usize) -> Option<char> {
-    //     let mut iter_clone = self.it.clone();
-    //     for _ in 0..ahead {
-    //         iter_clone.next();
-    //     }
-    //     iter_clone.next()
-    // }
-
     fn next(&mut self) -> Option<char> {
         let c = self.it.next();
         self.cur.idx += 1;
@@ -93,6 +85,8 @@ impl<'a> Scanner<'a> {
                 },
                 '(' => Ok(LeftParen),
                 ')' => Ok(RightParen),
+                '{' => Ok(LeftBrace),
+                '}' => Ok(RightBrace),
                 '@' => Ok(At),
                 ',' => Ok(Comma),
                 '+' => Ok(Plus),
@@ -104,7 +98,7 @@ impl<'a> Scanner<'a> {
                                 break;
                             }
                         }
-                        continue;
+                        Ok(Newline)
                     }
                     Some('*') => {
                         while let Some(c) = self.next() {

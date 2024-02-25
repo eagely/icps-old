@@ -8,6 +8,8 @@ pub enum Token {
     // Single-character tokens
     LeftParen,
     RightParen,
+    LeftBrace,
+    RightBrace,
     At,
     Comma,
     Plus,
@@ -72,6 +74,8 @@ impl Display for Token {
         write!(f, "{}", match self {
             LeftParen => "(".to_string(),
             RightParen => ")".to_string(),
+            LeftBrace => "{".to_string(),
+            RightBrace => "}".to_string(),
             At => "@".to_string(),
             Comma => ",".to_string(),
             Plus => "+".to_string(),
@@ -126,6 +130,8 @@ impl PartialEq for Token {
         (Unknown(_), Unknown(_)) |
         (LeftParen, LeftParen) |
         (RightParen, RightParen) |
+        (LeftBrace, LeftBrace) |
+        (RightBrace, RightBrace) |
         (At, At) |
         (Comma, Comma) |
         (Plus, Plus) |
@@ -185,7 +191,7 @@ impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Value::Number(n) => write!(f, "{}", n),
-            Value::String(s) => write!(f, "\"{}\"", s),
+            Value::String(s) => write!(f, "{}", s),
             Value::Boolean(b) => write!(f, "{}", b),
             Value::Null => write!(f, "null")
         }
