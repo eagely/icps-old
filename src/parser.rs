@@ -34,6 +34,9 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Vec<Stmt>, Error> {
         let mut statements: Vec<Stmt> = Vec::new();
         while !self.is_at_end() {
+            if cmp!(*self, Semicolon, Newline) {
+                continue;
+            }
             match self.declaration() {
                 Ok(stmt) => statements.push(stmt),
                 Err(e) => return Err(e)
@@ -60,13 +63,6 @@ impl<'a> Parser<'a> {
         self.tokens[self.cur].clone()
     }
 
-    fn peek_ahead(&self, n: usize) -> LocToken {
-        if self.cur + n >= self.tokens.len() {
-            process::exit(0);
-        }
-        self.tokens[self.cur + n].clone()
-    }
-
     fn previous(&self) -> LocToken {
         self.tokens[self.cur - 1].clone()
     }
@@ -89,7 +85,6 @@ impl<'a> Parser<'a> {
 
     fn end_statement(&mut self) -> Result<(), Error> {
         if cmp!(*self, Semicolon, Newline, EOF) {
-            self.advance();
             Ok(())
         } else {
             Err(Error::new(self.peek().loc, "Expected ';' or newline after statement."))
@@ -98,7 +93,7 @@ impl<'a> Parser<'a> {
 
     fn declaration(&mut self) -> Result<Stmt, Error> {
         if cmp!(self, Var) {
-            self.var_declaration()
+            self.variable()
         } else {
             self.statement()
         }
@@ -106,25 +101,43 @@ impl<'a> Parser<'a> {
 
     fn statement(&mut self) -> Result<Stmt, Error> {
         if cmp!(*self, Log) {
-            self.print_statement()
-        } else {
+            self.log()
+        } else if cmp!(*self, LeftBrace) {
+            Ok(Stmt::Block(self.block()?))
+        }
+        else {
             self.expression_statement()
         }
     }
 
-    fn var_declaration(&mut self) -> Result<Stmt, Error> {
-        let name= self.consume(Identifier("".to_string()))?;
+    fn block(&mut self) -> Result<Vec<Box<Stmt>>, Error> {
+        let mut statements: Vec<Box<Stmt>> = Vec::new();
 
+        while self.check(Newline) {
+            self.advance();
+        }
+
+        while !self.check(RightBrace) && !self.is_at_end() {
+            statements.push(Box::new(self.declaration()?))
+        }
+
+        self.consume(RightBrace)?;
+        Ok(statements)
+    }
+
+    fn variable(&mut self) -> Result<Stmt, Error> {
+        let name= self.consume(Identifier("".to_string()))?;
         let mut initializer= None;
+
         if cmp!(*self, Equal) {
-            initializer = Some(self.expression()?);
+            initializer = Some(Box::new(self.expression()?));
         }
 
         self.end_statement()?;
-        Ok(Stmt::Var(name, initializer))
+        Ok(Stmt::Variable(name, initializer))
     }
 
-    fn print_statement(&mut self) -> Result<Stmt, Error> {
+    fn log(&mut self) -> Result<Stmt, Error> {
         let out = Ok(Stmt::Log(Box::new(self.expression()?)));
         self.end_statement()?;
         out
@@ -132,13 +145,26 @@ impl<'a> Parser<'a> {
 
     fn expression_statement(&mut self) -> Result<Stmt, Error> {
         let out = Ok(Stmt::Expression(Box::new(self.expression()?)));
-        println!("{}", self.tokens.iter().map(|t| t.token.to_string()).collect::<Vec<std::string::String>>().join(" "));
         self.end_statement();
         out
     }
 
     fn expression(&mut self) -> Result<Expr, Error> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<Expr, Error> {
+        let expr = self.equality()?;
+        if cmp!(*self, Equal) {
+            let equals = self.previous();
+            let value = self.assignment()?;
+            match expr {
+                Expr::Variable(name) => Ok(Expr::Assign(name, Box::new(value))),
+                _ => Err(Error::new(equals.loc, "Invalid assignment target."))
+            }
+        } else {
+            Ok(expr)
+        }
     }
 
     fn equality(&mut self) -> Result<Expr, Error> {
