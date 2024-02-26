@@ -49,11 +49,11 @@ impl<'a> Parser<'a> {
         if !self.is_at_end() {
             self.cur += 1;
         }
-        return self.previous();
+        self.previous()
     }
 
     fn is_at_end(&self) -> bool {
-        self.peek().token == EOF
+        self.peek().token == Eof
     }
 
     fn peek(&self) -> LocToken {
@@ -79,12 +79,20 @@ impl<'a> Parser<'a> {
         if self.check(token.clone()) {
             Ok(self.advance())
         } else {
-            Err(Error::new(self.peek().loc, format!("Expected to consume '{}'.", token).as_str()))
+            Err(Error::new(self.peek().loc, format!("Expected closing '{}' after statement.", token).as_str()))
+        }
+    }
+
+    fn end_statement_if_not_else(&mut self) -> Result<(), Error> {
+        if cmp!(*self, Semicolon, Newline, Eof) || self.peek().token == Else {
+            Ok(())
+        } else {
+            Err(Error::new(self.peek().loc, "Expected ';' or newline after statement."))
         }
     }
 
     fn end_statement(&mut self) -> Result<(), Error> {
-        if cmp!(*self, Semicolon, Newline, EOF) {
+        if cmp!(*self, Semicolon, Newline, Eof) {
             Ok(())
         } else {
             Err(Error::new(self.peek().loc, "Expected ';' or newline after statement."))
@@ -100,25 +108,65 @@ impl<'a> Parser<'a> {
     }
 
     fn statement(&mut self) -> Result<Stmt, Error> {
-        if cmp!(*self, Log) {
+        if cmp!(*self, If) {
+            self.if_statement()
+        } else if cmp!(*self, Log) {
             self.log()
+        } else if cmp!(self, While) {
+            self.while_loop()
+        } else if cmp!(*self, For) {
+            self.for_loop()
         } else if cmp!(*self, LeftBrace) {
             Ok(Stmt::Block(self.block()?))
-        }
-        else {
+        } else {
             self.expression_statement()
         }
     }
 
-    fn block(&mut self) -> Result<Vec<Box<Stmt>>, Error> {
-        let mut statements: Vec<Box<Stmt>> = Vec::new();
+    fn if_statement(&mut self) -> Result<Stmt, Error> {
+        let condition = self.expression()?;
+        cmp!(*self, Newline);
+        let then_branch = self.statement()?;
+        cmp!(*self, Newline);
+        let else_branch = if cmp!(*self, Else) {
+            cmp!(*self, Newline);
+            Some(Box::new(self.statement()?))
+        } else {
+            None
+        };
+        Ok(Stmt::If(Box::new(condition), Box::new(then_branch), else_branch))
+    }
+
+    fn while_loop(&mut self) -> Result<Stmt, Error> {
+        let condition = self.expression()?;
+        cmp!(*self, Newline);
+        let body = Box::new(self.statement()?);
+        Ok(Stmt::While(Box::new(condition), body))
+    }
+
+    fn for_loop(&mut self) -> Result<Stmt, Error> {
+        let var = match self.peek().token {
+            Identifier(_) => {
+                self.advance();
+                Some(self.previous())
+            }
+            _ => None
+        };
+        let iterable = Box::new(self.range()?);
+        cmp!(*self, Newline);
+        let body = Box::new(self.statement()?);
+        Ok(Stmt::For(var, iterable, body))
+    }
+
+    fn block(&mut self) -> Result<Vec<Stmt>, Error> {
+        let mut statements: Vec<Stmt> = Vec::new();
 
         while self.check(Newline) {
             self.advance();
         }
 
         while !self.check(RightBrace) && !self.is_at_end() {
-            statements.push(Box::new(self.declaration()?))
+            statements.push(self.declaration()?)
         }
 
         self.consume(RightBrace)?;
@@ -126,26 +174,26 @@ impl<'a> Parser<'a> {
     }
 
     fn variable(&mut self) -> Result<Stmt, Error> {
-        let name= self.consume(Identifier("".to_string()))?;
-        let mut initializer= None;
+        let name = self.consume(Identifier("".to_string()))?;
+        let mut initializer = None;
 
         if cmp!(*self, Equal) {
             initializer = Some(Box::new(self.expression()?));
         }
 
         self.end_statement()?;
-        Ok(Stmt::Variable(name, initializer))
+        Ok(Stmt::Declaration(name, initializer))
     }
 
     fn log(&mut self) -> Result<Stmt, Error> {
         let out = Ok(Stmt::Log(Box::new(self.expression()?)));
-        self.end_statement()?;
+        self.end_statement_if_not_else()?;
         out
     }
 
     fn expression_statement(&mut self) -> Result<Stmt, Error> {
         let out = Ok(Stmt::Expression(Box::new(self.expression()?)));
-        self.end_statement();
+        self.end_statement_if_not_else();
         out
     }
 
@@ -154,7 +202,7 @@ impl<'a> Parser<'a> {
     }
 
     fn assignment(&mut self) -> Result<Expr, Error> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
         if cmp!(*self, Equal) {
             let equals = self.previous();
             let value = self.assignment()?;
@@ -167,6 +215,30 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn or(&mut self) -> Result<Expr, Error> {
+        let mut expr = self.and()?;
+
+        while cmp!(*self, Or, Xor) {
+            let op = self.previous();
+            let right = self.and()?;
+            expr = Expr::Logical(Box::new(expr), op, Box::new(right));
+        }
+
+        Ok(expr)
+    }
+
+    fn and(&mut self) -> Result<Expr, Error> {
+        let mut expr = self.equality()?;
+
+        while cmp!(*self, And) {
+            let op = self.previous();
+            let right = self.equality()?;
+            expr = Expr::Logical(Box::new(expr), op, Box::new(right));
+        }
+
+        Ok(expr)
+    }
+
     fn equality(&mut self) -> Result<Expr, Error> {
         let mut expr;
         match self.comparison() {
@@ -177,7 +249,7 @@ impl<'a> Parser<'a> {
                     expr = Expr::Binary(Box::new(expr), op, Box::new(self.comparison()?));
                 }
                 Ok(expr)
-            },
+            }
             Err(e) => Err(e)
         }
     }
@@ -195,7 +267,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Ok(expr)
-            },
+            }
             Err(e) => Err(e)
         }
     }
@@ -213,14 +285,14 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Ok(expr)
-            },
+            }
             Err(e) => Err(e)
         }
     }
 
     fn factor(&mut self) -> Result<Expr, Error> {
         let mut expr;
-        match self.unary() {
+        match self.range() {
             Ok(left) => {
                 expr = left;
                 while cmp!(*self, Slash, Star) {
@@ -231,7 +303,25 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Ok(expr)
-            },
+            }
+            Err(e) => Err(e)
+        }
+    }
+
+    fn range(&mut self) -> Result<Expr, Error> {
+        let mut expr;
+        match self.unary() {
+            Ok(left) => {
+                expr = left;
+                while cmp!(*self, Range) {
+                    let op = self.previous();
+                    match self.unary() {
+                        Ok(right) => expr = Expr::Binary(Box::new(expr), op, Box::new(right)),
+                        Err(e) => return Err(e)
+                    }
+                }
+                Ok(expr)
+            }
             Err(e) => Err(e)
         }
     }
@@ -254,11 +344,11 @@ impl<'a> Parser<'a> {
             False | True | Null | Number(_) | String(_) => {
                 self.advance();
                 Ok(Expr::Literal(token))
-            },
+            }
             Identifier(_) => {
                 self.advance();
                 Ok(Expr::Variable(token))
-            },
+            }
             LeftParen => {
                 self.advance();
                 match self.expression() {
@@ -267,27 +357,27 @@ impl<'a> Parser<'a> {
                             Ok(_) => Ok(Expr::Grouping(Box::new(expr))),
                             Err(e) => Err(e)
                         }
-                    },
+                    }
                     Err(e) => Err(e)
                 }
-            },
+            }
             _ => {
-                Err(Error::new(self.peek().loc, "Expected expression."))
+                Err(Error::new(token.loc, format!("Expected expression, but found '{}'.", token.token).as_str()))
             }
         }
     }
 
 
-    // fn synchronize(&mut self) {
-    //     self.advance();
-    //     while !self.is_at_end() {
-    //         if self.previous().token.kind() == Semicolon {
-    //             return;
-    //         }
-    //         match self.peek().token.kind() {
-    //             Class | Fn | While | Return => return,
-    //             _ => self.advance()
-    //         };
-    //     }
-    // }
+// fn synchronize(&mut self) {
+//     self.advance();
+//     while !self.is_at_end() {
+//         if self.previous().token.kind() == Semicolon {
+//             return;
+//         }
+//         match self.peek().token.kind() {
+//             Class | Fn | While | Return => return,
+//             _ => self.advance()
+//         };
+//     }
+// }
 }

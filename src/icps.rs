@@ -86,7 +86,7 @@ pub fn warn(line: usize, col: usize, message: &str) {
 }
 
 pub fn panic(message: &str) {
-    eprintln!("Interpreter panic! This is probably not your fault, but instead an internal bug due to how new and poorly-tested the interpreter is. Please report this by opening an issue on https://github.com/eagely/icps: {}", message);
+    eprintln!("Interpreter panic! This is probably not your fault, but instead an internal bug due to how new and poorly-tested the interpreter is. Please report this by opening an issue on https://github.com/eagely/icps : {}", message);
     process::exit(70);
 }
 

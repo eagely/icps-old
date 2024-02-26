@@ -153,8 +153,32 @@ impl<'a> Scanner<'a> {
                 '"' => {
                     self.string(c)
                 }
+                // ew
+                '.' => {
+                    match self.peek() {
+                        Some(&'.') => {
+                            self.next();
+                            Ok(Range)
+                        },
+                        Some(c) if c.is_digit(10) => {
+                            let decimal_part = self.collect_decimal_part();
+
+                            if let Some(LocToken { token: Token::Number(number), .. }) = self.tokens.last_mut() {
+                                let whole_number = *number;
+                                let decimal_number = format!("{}{}", whole_number, decimal_part).parse().unwrap();
+                                *number = decimal_number;
+                                continue;
+                            } else {
+                                return Err(Error::new(self.cur, "Unexpected character '.'"));
+                            }
+                        },
+                        _ => {
+                            Err(Error::new(self.cur, "Unexpected character '.'"))
+                        }
+                    }
+                },
                 _ => {
-                    if c.is_digit(10) || c == '.' {
+                    if c.is_digit(10) {
                         self.number(c)
                     } else if c.is_alphanumeric() {
                         Ok(self.identifier(c))
@@ -167,7 +191,7 @@ impl<'a> Scanner<'a> {
                 Err(e) => return Err(e)
             }
         }
-        self.emit(EOF);
+        self.emit(Eof);
         Ok(self.tokens.to_owned())
     }
 
@@ -187,22 +211,33 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    pub fn number(&mut self, c: char) -> Result<Token, Error> {
-        let mut s = String::new();
-        s.push(c);
-        while let Some(c) = self.peek() {
-            if c.is_digit(10) || (c == &'.' && s.chars().filter(|&c| c == '.').count() == 0) {
-                s.push(self.next().unwrap());
+    pub fn number(&mut self, start_char: char) -> Result<Token, Error> {
+        let mut number_string = String::new();
+        number_string.push(start_char);
+
+        while let Some(&next_char) = self.peek() {
+            if next_char.is_digit(10) {
+                number_string.push(self.next().unwrap());
             } else {
                 break;
             }
         }
-        if s.chars().filter(|&c| c == '.').count() == s.len() {
-            Err(Error::new(self.cur, "Unexpected character '.'"))
+
+        let number = number_string.parse().map_err(|_| Error::new(self.cur, "Invalid number"))?;
+        Ok(Number(number))
+    }
+
+    fn collect_decimal_part(&mut self) -> String {
+        let mut decimal_part = String::new();
+        decimal_part.push('.');
+        while let Some(&next_char) = self.peek() {
+            if next_char.is_digit(10) {
+                decimal_part.push(self.next().unwrap());
+            } else {
+                break;
+            }
         }
-        else {
-            Ok(Number(s.parse().unwrap()))
-        }
+        decimal_part
     }
 
     pub fn identifier(&mut self, c: char) -> Token {

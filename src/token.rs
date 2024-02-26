@@ -16,6 +16,7 @@ pub enum Token {
     Minus,
     Slash,
     Star,
+    Range,
     Semicolon,
     Newline,
     QuestionMark,
@@ -44,8 +45,10 @@ pub enum Token {
     True,
     False,
     Class,
+    If,
     Else,
     While,
+    For,
     Null,
     Log,
     Return,
@@ -56,7 +59,7 @@ pub enum Token {
     Var,
 
     // Special
-    EOF,
+    Eof,
     UnterminatedString,
     Unknown(char),
 }
@@ -64,6 +67,7 @@ pub enum Token {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Number(f64),
+    Range(f64, f64),
     String(String),
     Boolean(bool),
     Null,
@@ -82,6 +86,7 @@ impl Display for Token {
             Minus => "-".to_string(),
             Slash => "/".to_string(),
             Star => "*".to_string(),
+            Range => "..".to_string(),
             Semicolon => ";".to_string(),
             Newline => "\\n".to_string(),
             QuestionMark => "?".to_string(),
@@ -104,8 +109,10 @@ impl Display for Token {
             True => "true".to_string(),
             False => "false".to_string(),
             Class => "class".to_string(),
+            If => "if".to_string(),
             Else => "else".to_string(),
             While => "while".to_string(),
+            For => "for".to_string(),
             Null => "null".to_string(),
             Log => "log".to_string(),
             Return => "return".to_string(),
@@ -114,7 +121,7 @@ impl Display for Token {
             Fn => "fn".to_string(),
             Use => "use".to_string(),
             Var => "var".to_string(),
-            EOF => "EOF".to_string(),
+            Eof => "EOF".to_string(),
             UnterminatedString => "unterminated string".to_string(),
             Unknown(c) => "unknown".to_string()
         })
@@ -138,6 +145,7 @@ impl PartialEq for Token {
         (Minus, Minus) |
         (Slash, Slash) |
         (Star, Star) |
+        (Range, Range) |
         (Semicolon, Semicolon) |
         (Newline, Newline) |
         (QuestionMark, QuestionMark) |
@@ -157,8 +165,10 @@ impl PartialEq for Token {
         (True, True) |
         (False, False) |
         (Class, Class) |
+        (If, If) |
         (Else, Else) |
         (While, While) |
+        (For, For) |
         (Null, Null) |
         (Log, Log) |
         (Return, Return) |
@@ -167,23 +177,15 @@ impl PartialEq for Token {
         (Fn, Fn) |
         (Use, Use) |
         (Var, Var) |
-        (EOF, EOF) |
+        (Eof, Eof) |
         (UnterminatedString, UnterminatedString)
     )
-    }
-
-
-    fn ne(&self, other: &Self) -> bool {
-        !(self == other)
     }
 }
 
 impl Token {
     pub fn is_valid_value(&self) -> bool {
-        match self {
-            Number(_) | String(_) | True | False | Null => true,
-            _ => false
-        }
+        matches!(self, Number(_) | String(_) | True | False | Null)
     }
 }
 
@@ -191,6 +193,7 @@ impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Value::Number(n) => write!(f, "{}", n),
+            Value::Range(start, end) => write!(f, "{}..{}", start, end),
             Value::String(s) => write!(f, "{}", s),
             Value::Boolean(b) => write!(f, "{}", b),
             Value::Null => write!(f, "null")
@@ -240,7 +243,8 @@ impl Value {
         match *self {
             Value::Boolean(b) => b,
             Value::Null => false,
-            _ => panic!("Attempted to call is_truthy on non-(boolean/null) 'Value'. Please report this, this wasn't supposed to happen.")
+            Value::String(ref s) => !s.is_empty(),
+            _ => true
         }
     }
 }
@@ -256,8 +260,10 @@ lazy_static! {
         m.insert("true", True);
         m.insert("false", False);
         m.insert("class", Class);
+        m.insert("if", If);
         m.insert("else", Else);
         m.insert("while", While);
+        m.insert("for", For);
         m.insert("null", Null);
         m.insert("log", Log);
         m.insert("return", Return);
@@ -271,4 +277,5 @@ lazy_static! {
 }
 
 pub use Token::*;
+use crate::ast::Expr;
 use crate::icps;
