@@ -8,36 +8,27 @@ pub enum Expr {
     Unary(LocToken, Box<Expr>),
     Binary(Box<Expr>, LocToken, Box<Expr>),
     Call(Box<Expr>, Vec<Expr>),
-    // function name, args
     Get(Box<Expr>, LocToken),
     Set(Box<Expr>, LocToken, Box<Expr>),
-    // object, name, value
     Grouping(Box<Expr>),
-    // expr in parentheses
     Literal(LocToken),
-    // num or string
     Logical(Box<Expr>, LocToken, Box<Expr>),
     Super(LocToken),
-    // super.name
     This(LocToken),
-    // this.name
-    Variable(LocToken), // variable name
+    Variable(LocToken),
 }
 
 pub enum Stmt {
-    Block(Vec<Box<Stmt>>),
+    Block(Vec<Stmt>),
     Class(LocToken, Box<Expr>, Vec<Box<Stmt>>),
-    // name, superclass, methods
     Expression(Box<Expr>),
     Function(LocToken, Vec<LocToken>, Vec<Box<Stmt>>),
-    // name, params, body
-    If(Box<Expr>, Box<Stmt>, Box<Stmt>),
-    // condition, then, else
+    If(Box<Expr>, Box<Stmt>, Option<Box<Stmt>>),
     Log(Box<Expr>),
     Return(Option<Expr>),
-    Variable(LocToken, Option<Box<Expr>>),
-    // name, initializer (icps is kotlin-like not nullable)
-    While(Box<Expr>, Box<Stmt>), // condition, body
+    Declaration(LocToken, Option<Box<Expr>>),
+    While(Box<Expr>, Box<Stmt>),
+    For(Option<LocToken>, Box<Expr>, Box<Stmt>),
 }
 
 impl Display for Stmt {
@@ -48,20 +39,24 @@ impl Display for Stmt {
                 format!("class {} {} {}", name.token, superclass, methods_str)
             }
             Stmt::Expression(expr) => format!("{}", expr),
-            Stmt::If(condition, then, else_) => format!("if {} then {} else {}", condition, then, else_),
+            Stmt::If(condition, then, else_) => format!("if {} then {} else {}", condition, then, match else_ { Some(else_) => format!("{}", else_), None => "Nothing".to_string() }),
             Stmt::Log(expr) => format!("log {}", expr),
             Stmt::Return(expr) => format!("return {}", expr.as_ref().map_or("".to_string(), ToString::to_string)),
-            Stmt::Variable(name, initializer) => format!("var {} = {}", name.token, initializer.as_ref().map_or("".to_string(), ToString::to_string)),
+            Stmt::Declaration(name, initializer) => format!("var {} = {}", name.token, initializer.as_ref().map_or("".to_string(), ToString::to_string)),
             Stmt::While(condition, body) => format!("while {} {}", condition, body),
+            Stmt::Block(stmts) => {
+                let stmts_str = stmts.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
+                format!("block [ {} ]", stmts_str)
+            }
             _ => panic!()
         })
     }
 }
 
 impl Display for Expr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
-            Expr::Assign(name, value) => format!("{} {}", name.token, value),
+            Expr::Assign(name, value) => format!("{} = {}", name.token, value),
             Expr::Unary(operator, right) => format!("{} {}", operator.token, right),
             Expr::Binary(left, operator, right) => format!("{} {} {}", operator.token, left, right),
             Expr::Call(callee, args) => {
@@ -75,7 +70,7 @@ impl Display for Expr {
             Expr::Logical(left, operator, right) => format!("{} {} {}", operator.token, left, right),
             Expr::Super(keyword) => format!("super.{}", keyword.token),
             Expr::This(keyword) => format!("this.{}", keyword.token),
-            Expr::Variable(name) => format!("Vvar {}", name.token),
+            Expr::Variable(name) => format!("{}", name.token),
         })
     }
 }
